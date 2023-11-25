@@ -10,6 +10,16 @@ import atexit
 import time
 import asyncio
 
+
+def startTimeMeasure(id):
+    id = time.time()
+    return id
+    
+def printElapsedTime(id, msg="Elapsed time: "):
+    print(msg, time.time() - id)
+    id = time.time()
+    return id
+
 class xyze_t:
 	x = 0.0
 	y = 0.0
@@ -18,6 +28,7 @@ class xyze_t:
 	home_x = False
 	home_y = False
 	home_z = False
+	changed= False
 
 	def homing(self):
 		self.home_x = False
@@ -245,6 +256,7 @@ class PrinterData:
 	fw_unretract_extra_length = 0.0
 
 	gcode_speed = 0.0
+	subscribedValChanged = False
 
 	HMI_ValueStruct = HMI_value_t()
 	HMI_flag = HMI_Flag_t()
@@ -317,10 +329,30 @@ class PrinterData:
 		}
 		self.klippy_z_offset = '{"id": 4002, "method": "objects/query", "params": {"objects": {"configfile": ["config"]}}}'
 		self.klippy_home = '{"id": 4003, "method": "objects/query", "params": {"objects": {"toolhead": ["homed_axes"]}}}'
+		subscribe2  ={
+			"id": 4004,
+			"method": "objects/subscribe",
+			"params":{
+				"objects": {
+        			"fan": ["speed"]},
+				"response_template": {}
+			}
+		}
+		subscribe3  ={
+			"id": 4005,
+			"method": "objects/subscribe",
+			"params":{
+				"objects": {
+        			"gcode_move": ["speed"]},
+				"response_template": {}
+			}
+		}
 
 		self.ks.queue_line(json.dumps(subscribe))
 		self.ks.queue_line(self.klippy_z_offset)
 		self.ks.queue_line(self.klippy_home)
+		self.ks.queue_line(json.dumps(subscribe2))
+		self.ks.queue_line(json.dumps(subscribe3))
 
 		self.event_loop = asyncio.new_event_loop()
 		threading.Thread(target=self.event_loop.run_forever, daemon=True).start()
@@ -328,6 +360,7 @@ class PrinterData:
 	# ------------- Klipper Function ----------
 
 	def klippy_callback(self, line):
+		#print("DATALINE:", line)
 		klippyData = json.loads(line)
 		status = None
 		if 'result' in klippyData:
@@ -344,6 +377,8 @@ class PrinterData:
 					self.current_position.y = status['toolhead']['position'][1]
 					self.current_position.z = status['toolhead']['position'][2]
 					self.current_position.e = status['toolhead']['position'][3]
+					self.current_position.changed = True
+
 				if 'homed_axes' in status['toolhead']:
 					if 'x' in status['toolhead']['homed_axes']:
 						self.current_position.home_x = True
@@ -352,6 +387,16 @@ class PrinterData:
 					if 'z' in status['toolhead']['homed_axes']:
 						self.current_position.home_z = True
 
+			if 'fan' in status:
+				if 'speed' in status['fan']:
+					self.thermalManager['fan_speed'][0] = status['fan']['speed'] * 100
+					self.subscribedValChanged = True
+
+			if 'gcode_move' in status:
+				if 'speed' in status['gcode_move']:
+					self.gcode_speed = status['gcode_move']['speed']
+					self.subscribedValChanged = True
+
 			if 'configfile' in status:
 				if 'config' in status['configfile']:
 					if 'bltouch' in status['configfile']['config']:
@@ -359,7 +404,7 @@ class PrinterData:
 							if status['configfile']['config']['bltouch']['z_offset']:
 								self.BABY_Z_VAR = float(status['configfile']['config']['bltouch']['z_offset'])
 
-			#print(status)
+			#print(line)
 
 	def ishomed(self):
 		if self.current_position.home_x and self.current_position.home_y and self.current_position.home_z:
@@ -462,6 +507,19 @@ class PrinterData:
 		return names
 
 	def update_variable(self):
+		Update = False
+		if self.current_position.changed:
+			Update=True
+			self.xpos = self.current_position.x
+			self.ypos = self.current_position.y
+			self.zpos = self.current_position.z
+			self.current_position.changed=False
+		if self.subscribedValChanged:
+			Update=True
+			self.subscribedValChanged = False
+		if Update:
+			return True
+
 		query = '/printer/objects/query?extruder&heater_bed&gcode_move&fan&display_status'
 		data = self.getREST(query)['result']['status']
 		gcm = data['gcode_move']

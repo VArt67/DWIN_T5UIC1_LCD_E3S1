@@ -15,6 +15,14 @@ from DWIN_Screen import T5UIC1_LCD
 def current_milli_time():
 	return round(time.time() * 1000)
 
+def startTimeMeasure(id):
+    id = time.time()
+    return id
+    
+def printElapsedTime(id, msg="Elapsed time: "):
+    print(msg, time.time() - id)
+    id = time.time()
+    return id
 
 def _MAX(lhs, rhs):
 	if lhs > rhs:
@@ -349,14 +357,14 @@ class DWIN_LCD:
 		self.checkkey = self.MainMenu
 		self.pd = PrinterData(octoPrint_API_Key)
 		self.timer = RepeatableTimer(
-			interval=0.0, function=self.EachMomentUpdate) #sur interval 1(2)
+			interval=0.25, function=self.EachMomentUpdate) #sur interval 1(2)
 		self.HMI_ShowBoot()
 		#self.HMI_AudioFeedback(True) #Sur?
 		print("Boot looks good")
 		print("Testing Web-services")
 		self.pd.init_Webservices()
 		while self.pd.status is None:
-			print("No Web-services")
+			print("No Web-services. Next try ...")
 			self.pd.init_Webservices()
 			self.HMI_ShowBoot("Web-service still loading")
 		self.HMI_Init()
@@ -2880,6 +2888,7 @@ class DWIN_LCD:
 		if self.pd.HMI_flag.home_flag:
 			if self.pd.ishomed():
 				self.CompletedHoming()
+    
 
 		if update:
 			self.Draw_Status_Area(update)
