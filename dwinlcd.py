@@ -363,12 +363,15 @@ class DWIN_LCD:
 		print("Boot looks good")
 		print("Testing Web-services")
 		self.pd.init_Webservices()
+		time.sleep(5);
 		while self.pd.status is None:
 			print("No Web-services. Next try ...")
 			self.pd.init_Webservices()
 			self.HMI_ShowBoot("Web-service still loading")
+			time.sleep(1);
 		self.HMI_Init()
 		self.HMI_StartFrame(False)
+		print("Init ready")
 
 	def lcdExit(self):
 		print("Shutting down the LCD")

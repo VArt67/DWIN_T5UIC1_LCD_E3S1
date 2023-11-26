@@ -320,39 +320,16 @@ class PrinterData:
 			"method": "objects/subscribe",
 			"params": {
 				"objects": {
-					"toolhead": [
-						"position"
-					]
-				},
+					"toolhead": ["position"], "gcode_move": ["speed"], "fan": ["speed"] },
 				"response_template": {}
 			}
 		}
 		self.klippy_z_offset = '{"id": 4002, "method": "objects/query", "params": {"objects": {"configfile": ["config"]}}}'
-		self.klippy_home = '{"id": 4003, "method": "objects/query", "params": {"objects": {"toolhead": ["homed_axes"]}}}'
-		subscribe2  ={
-			"id": 4004,
-			"method": "objects/subscribe",
-			"params":{
-				"objects": {
-        			"fan": ["speed"]},
-				"response_template": {}
-			}
-		}
-		subscribe3  ={
-			"id": 4005,
-			"method": "objects/subscribe",
-			"params":{
-				"objects": {
-        			"gcode_move": ["speed"]},
-				"response_template": {}
-			}
-		}
+		self.klippy_home =     '{"id": 4003, "method": "objects/query", "params": {"objects": {"toolhead": ["homed_axes"]}}}'
 
 		self.ks.queue_line(json.dumps(subscribe))
 		self.ks.queue_line(self.klippy_z_offset)
 		self.ks.queue_line(self.klippy_home)
-		self.ks.queue_line(json.dumps(subscribe2))
-		self.ks.queue_line(json.dumps(subscribe3))
 
 		self.event_loop = asyncio.new_event_loop()
 		threading.Thread(target=self.event_loop.run_forever, daemon=True).start()
@@ -360,7 +337,7 @@ class PrinterData:
 	# ------------- Klipper Function ----------
 
 	def klippy_callback(self, line):
-		#print("DATALINE:", line)
+		#print("DATALINE:", line[:200])
 		klippyData = json.loads(line)
 		status = None
 		if 'result' in klippyData:
@@ -453,9 +430,13 @@ class PrinterData:
 			return
 		else:
 			print('Web site exists')
+		time.sleep(2)
+		print("API printer...")
 		if self.getREST('/api/printer') is None:
+			print('API not open')
 			return
-		self.update_variable()
+		print("Initial update Variable")
+		self.update_variable(True)
 		#alternative approach
 		#full_version = self.getREST('/printer/info')['result']['software_version']
 		#self.SHORT_BUILD_VERSION = '-'.join(full_version.split('-',2)[:2])
@@ -506,7 +487,7 @@ class PrinterData:
 			names.append(fl["path"])
 		return names
 
-	def update_variable(self):
+	def update_variable(self, initial=False):
 		Update = False
 		if self.current_position.changed:
 			Update=True
@@ -517,9 +498,10 @@ class PrinterData:
 		if self.subscribedValChanged:
 			Update=True
 			self.subscribedValChanged = False
-		if Update:
-			return True
-
+		if initial==False:
+			if Update:
+				return True
+		
 		query = '/printer/objects/query?extruder&heater_bed&gcode_move&fan&display_status'
 		data = self.getREST(query)['result']['status']
 		gcm = data['gcode_move']
