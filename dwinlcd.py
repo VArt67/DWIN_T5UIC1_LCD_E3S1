@@ -2,7 +2,7 @@ import time
 #import multitimer #mkocot
 import threading #mkocot
 import atexit
-#import debugpy
+import debugpy
 
 from encoder import Encoder
 #from RPi import GPIO	#mkocot
@@ -159,6 +159,9 @@ class DWIN_LCD:
 	Key_FW_retract_length = 37
 	Key_FW_unretract_speed = 38
 	Key_FW_unretract_extra_length = 39
+
+	pressureAdvance = 40
+
  
 	MINUNITMULT = 10
 
@@ -311,7 +314,8 @@ class DWIN_LCD:
 	TUNE_CASE_FLOW = (TUNE_CASE_SPEED + 1)
 	TUNE_CASE_FAN = (TUNE_CASE_FLOW + 1)	# + fan
 	TUNE_CASE_ZOFF = (TUNE_CASE_FAN + 1)
-	TUNE_CASE_RETRACT_L = (TUNE_CASE_ZOFF + 1)		# + fw_retract_length
+	TUNE_CASE_PADV = (TUNE_CASE_ZOFF + 1)		# + pressure_advance
+	TUNE_CASE_RETRACT_L = (TUNE_CASE_PADV + 1)		# + fw_retract_length
 	TUNE_CASE_RETRACT_S = (TUNE_CASE_RETRACT_L + 1)		# + fw_retract_speed
 	TUNE_CASE_UNRETRACT_S = (TUNE_CASE_RETRACT_S + 1)	# + fw_unretract_speed
 	TUNE_CASE_UNRETRACT_EXTRA_L = (TUNE_CASE_UNRETRACT_S + 1)		# + fw_unretract_extra_length
@@ -337,8 +341,9 @@ class DWIN_LCD:
 	# DWIN screen uses serial port 1 to send
 	def __init__(self, USARTx, encoder_pins, button_pin, octoPrint_API_Key):
 		#GPIO.setmode(GPIO.BCM)	#mkocot
-		#print("Waiting for debugger attach")
-		#debugpy.wait_for_client()
+		debugpy.listen(5678)
+		print("Waiting for debugger attach")
+		debugpy.wait_for_client()
 		self.encoder = Encoder(encoder_pins[0], encoder_pins[1])
 		self.button_pin = button_pin
 		#GPIO.setup(self.button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)	#mkocot
@@ -355,6 +360,7 @@ class DWIN_LCD:
 		self.lcd = T5UIC1_LCD(USARTx)
 		self.lcd.Backlight_SetLuminance(0x14) #Sur 20
 		self.checkkey = self.MainMenu
+		debugpy.breakpoint()
 		self.pd = PrinterData(octoPrint_API_Key)
 		self.timer = RepeatableTimer(
 			interval=0.25, function=self.EachMomentUpdate) #sur interval 1(2)
@@ -363,7 +369,7 @@ class DWIN_LCD:
 		print("Boot looks good")
 		print("Testing Web-services")
 		self.pd.init_Webservices()
-		time.sleep(5);
+		time.sleep(1);
 		while self.pd.status is None:
 			print("No Web-services. Next try ...")
 			self.pd.init_Webservices()
@@ -915,6 +921,14 @@ class DWIN_LCD:
 					self.MBASE(self.select_tune.now + self.MROWS - self.index_tune),
 					self.pd.HMI_ValueStruct.offset_value
 				)
+			elif self.select_tune.now == self.TUNE_CASE_PADV:   #pressure_advance
+				self.checkkey = self.pressureAdvance
+				self.pd.HMI_ValueStruct.pressure_advance = self.pd.pressureAdvance
+				self.lcd.Draw_Signed_Float(
+					self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 210,
+					self.MBASE(self.select_tune.now + self.MROWS - self.index_tune),
+					self.pd.pressureAdvance
+				)
 
 			# Fw_retract
 			elif self.select_tune.now == self.TUNE_CASE_RETRACT_L:	# Fw_retract_length
@@ -1058,6 +1072,41 @@ class DWIN_LCD:
 			3, 216, self.MBASE(fan_line),
 			self.pd.HMI_ValueStruct.Fan_speed
 		)
+  
+	def HMI_pressure_advance(self):	#sur #TODO FIX
+		encoder_diffState = self.get_encoder_state()
+		if (encoder_diffState == self.ENCODER_DIFF_NO):
+			return
+
+		bgcolor = self.lcd.Select_Color
+
+		if (encoder_diffState == self.ENCODER_DIFF_CW):
+			self.pd.HMI_ValueStruct.pressure_advance += 0.01
+		elif (encoder_diffState == self.ENCODER_DIFF_CCW):
+			self.pd.HMI_ValueStruct.pressure_advance -= 0.01
+   
+		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
+			#save and exit to mother menu
+			self.checkkey = self.Tune
+			#self.encoderRate = True
+			self.EncoderRateLimit = True
+
+			if (self.pd.HMI_ValueStruct.pressure_advance < 0):
+				self.pd.HMI_ValueStruct.pressure_advance = 0.0
+			if self.pd.HMI_ValueStruct.pressure_advance > 100:
+				self.pd.HMI_ValueStruct.pressure_advance = 100
+
+			self.pd.set_pressure_advance(self.pd.HMI_ValueStruct.pressure_advance)
+			bgcolor = self.lcd.Color_Bg_Black
+			#update status
+			self.Draw_Status_Area(True)
+
+		self.lcd.Draw_FloatValue(
+			True, True, 0, self.lcd.font8x16, self.lcd.Color_White, bgcolor,
+			2, 1, 210, self.MBASE(self.select_tune.now + self.MROWS - self.index_tune),
+			self.pd.HMI_ValueStruct.pressure_advance
+		)
+
 
 	def HMI_fw_retract_length(self):	#sur #TODO FIX
 		encoder_diffState = self.get_encoder_state()
@@ -2291,12 +2340,21 @@ class DWIN_LCD:
 			self.Item_Prepare_Fan(self.TUNE_CASE_FAN)
    
 		if scroll + self.TUNE_CASE_ZOFF <= self.MROWS:
-			self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
-			self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset)
+			#self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
+			self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset, "Pressure Advance")
 			self.lcd.Draw_Signed_Float(
 		 		self.lcd.font8x16, self.lcd.Color_Bg_Black,
 	 			2, 2, 202, self.MBASE(self.TUNE_CASE_ZOFF),
 	 			self.pd.BABY_Z_VAR * 100
+		 	)
+
+		if scroll + self.TUNE_CASE_PADV <= self.MROWS:
+			#self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_PADV))  # Z-offset
+			self.Draw_Menu_Line(self.TUNE_CASE_PADV, self.ICON_Zoffset, "Pressure Advance")
+			self.lcd.Draw_Signed_Float(
+		 		self.lcd.font8x16, self.lcd.Color_Bg_Black,
+	 			2, 2, 210, self.MBASE(self.TUNE_CASE_PADV),
+	 			self.pd.pressureAdvance
 		 	)
 
 		if scroll + self.TUNE_CASE_RETRACT_L <= self.MROWS:
@@ -2954,6 +3012,8 @@ class DWIN_LCD:
 			self.HMI_PrintSpeed()
 		elif self.checkkey == self.FlowSpeed:					#todo
 			self.HMI_FlowSpeed()
+		elif self.checkkey == self.pressureAdvance:
+			self.HMI_pressure_advance()
 		elif self.checkkey == self.Key_FW_retract_length:
 			self.HMI_fw_retract_length()
 		elif self.checkkey == self.Key_FW_retract_speed:

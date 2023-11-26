@@ -9,6 +9,7 @@ from requests.exceptions import ConnectionError
 import atexit
 import time
 import asyncio
+import debugpy
 
 
 def startTimeMeasure(id):
@@ -74,6 +75,7 @@ class HMI_value_t:
 	Move_Z_scale = 0.0
 	Move_E_scale = 0.0
 	offset_value = 0.0
+	pressure_advance = 0.0
 	show_mode = 0  # -1: Temperature control    0: Printing temperature
 	fw_retract_length = 25.0 #TODO fix to int *10
 	fw_retract_speed = 0.5
@@ -242,6 +244,8 @@ class PrinterData:
 	xpos = 0
 	ypos = 0
 	zpos = 0
+
+	pressureAdvance = 0.0
 
 	BABY_Z_VAR = 0
 	feedrate_percentage = 100
@@ -430,7 +434,7 @@ class PrinterData:
 			return
 		else:
 			print('Web site exists')
-		time.sleep(2)
+		time.sleep(1.5)  # Let all socket callback finish
 		print("API printer...")
 		if self.getREST('/api/printer') is None:
 			print('API not open')
@@ -455,13 +459,32 @@ class PrinterData:
 
 		#list_objects = self.getREST('/printer/objects/list')
 		#print(list_objects)
-		#{'result': {'objects': 
-		# ['webhooks', 'configfile', 'mcu', 'mcu rpi', 
-		# 'gcode_macro set_Z_0', 'gcode_macro PID_calibrate_240', ......
-		# 'firmware_retraction', 'heaters', 'heater_bed', 'fan', 'gcode_move', 'probe', 'bed_mesh', 'tmc2208 extruder', 
-		# 'filament_switch_sensor Filament_sensor', 'print_stats', 'virtual_sdcard', 'display_status', 'pause_resume', 
-		# 'output_pin BEEPER_pin', 'temperature_host rpi_temp', 'temperature_sensor rpi_temp', 'temperature_sensor mcu_temp', 
-		# 'motion_report', 'query_endstops', 'idle_timeout', 'system_stats', 'toolhead', 'extruder']}}
+		#{'result': {
+      	# 'objects': 
+      	# 	['webhooks', 'configfile', 'mcu', 'mcu rpi', 'gcode_macro HELLO_WORLD', 
+      	# 	'gcode_move', 'print_stats', 'virtual_sdcard', 'pause_resume', 'display_status', 
+      	# 	'gcode_macro CANCEL_PRINT', 'gcode_macro PAUSE', 'gcode_macro RESUME', 'gcode_macro SET_PAUSE_NEXT_LAYER', 
+      	# 	'gcode_macro SET_PAUSE_AT_LAYER', 'gcode_macro SET_PRINT_STATS_INFO', 'gcode_macro _TOOLHEAD_PARK_PAUSE_CANCEL', 
+      	# 	'gcode_macro _CLIENT_EXTRUDE', 'gcode_macro _CLIENT_RETRACT', 'gcode_macro _CALIBRATE_START', 'gcode_macro _CALIBRATE_END', 
+      	# 	'gcode_macro PRESSURE_ADVANCE_CALIBRATION', 'gcode_macro FLOW_MULTIPLIER_CALIBRATION', 'gcode_macro COMPUTE_FLOW_MULTIPLIER', 
+      	# 	'gcode_macro _FLOW_CALIB_VARIABLES', 'gcode_macro AXES_SHAPER_CALIBRATION', 'gcode_macro BELTS_SHAPER_CALIBRATION', 
+      	# 	'gcode_macro EXCITATE_AXIS_AT_FREQ', 'gcode_macro VIBRATIONS_CALIBRATION', 'gcode_macro START_PRINT', 
+     	# 	'exclude_object', 'filament_switch_sensor RunoutSensor', 
+       	#	'heaters', 'heater_bed', 'heater_fan hotend_fan', 'fan', 'probe', 'bed_mesh', 'bed_screws', 
+        # 	'screws_tilt_adjust', 'temperature_sensor Board_MCU', 'temperature_host Raspberry_Pi', 'temperature_sensor Raspberry_Pi', 
+        # 	'firmware_retraction', 'stepper_enable', 'motion_report', 'query_endstops', 'idle_timeout', 'system_stats', 'manual_probe', 
+        # 	'toolhead', 'extruder']}}
+
+		#extruder = self.getREST('/printer/objects/query?extruder')
+		#print(extruder)
+		# {'result': {'eventtime': 10009.437037067,
+		# 	'status': {'extruder': 
+  		# 	{'temperature': 19.1, 'target': 0.0, 'power': 0.0, 'can_extrude': False, 'pressure_advance': 0.08, 'smooth_time': 0.04, 'motion_queue': None}}}}
+		
+		#probe = self.getREST('/printer/objects/query?probe')
+		#print(probe)
+		# {'result': {'eventtime': 10022.976974354, 'status': {'probe': {'name': 'bltouch', 'last_query': False, 'last_z_result': 0.0}}}}
+
 
 		#fwr = self.getREST('/printer/objects/query?firmware_retraction')
 		#print(fwr)
@@ -504,7 +527,7 @@ class PrinterData:
 		
 		query = '/printer/objects/query?extruder&heater_bed&gcode_move&fan&display_status'
 		data = self.getREST(query)['result']['status']
-		gcm = data['gcode_move']
+		gcm = data['gcode_move'] 
 		z_offset = gcm['homing_origin'][2] #z offset
 		flow_rate = gcm['extrude_factor'] * 100 #flow rate percent
 		self.absolute_moves = gcm['absolute_coordinates'] #absolute or relative
@@ -536,6 +559,9 @@ class PrinterData:
 				self.BABY_Z_VAR = z_offset
 				self.HMI_ValueStruct.offset_value = z_offset * 100
 				Update = True
+			if self.pressureAdvance != float(extruder['pressure_advance']):
+				self.pressureAdvance = float(extruder['pressure_advance'])
+				self.HMI_ValueStruct.pressure_advance = self.pressureAdvance
 			if self.xpos != self.current_position.x:
 				Update = True
 			if self.ypos != self.current_position.y:
@@ -657,6 +683,11 @@ class PrinterData:
 	# 	self.fw_unretract_extra_length = uel
 	# 	self.sendGCode('SET_RETRACTION RETRACT_LENGTH=%s RETRACT_SPEED=%s UNRETRACT_SPEED=%s UNRETRACT_EXTRA_LENGTH=%s'
 	# 		% rl, rs, us, uel)
+
+	def set_pressure_advance(self, fr):
+		self.pressureAdvance = fr
+		#print('set pressure advance to: ', fr)
+		self.sendGCode('SET_PRESSURE_ADVANCE EXTRUDER=extruder ADVANCE=%s' % fr)
 
 	def set_fw_retract_length(self, fr):
 		self.fw_retract_length = fr
