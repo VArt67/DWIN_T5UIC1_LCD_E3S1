@@ -64,9 +64,6 @@ class Encoder:
 		self.diffValue = 1
 		self.lastMS = 0
 		self.lastDirection = None
-  
-  
-	
 
 	def getValue(self):
 		return self.value

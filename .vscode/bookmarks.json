@@ -1,0 +1,54 @@
+{
+	"files": [
+		{
+			"path": "dwinlcd.py",
+			"bookmarks": [
+				{
+					"line": 561,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 676,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 855,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 2201,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 2227,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 2307,
+					"column": 0,
+					"label": ""
+				},
+				{
+					"line": 2372,
+					"column": 0,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "printerInterface.py",
+			"bookmarks": [
+				{
+					"line": 737,
+					"column": 0,
+					"label": ""
+				}
+			]
+		}
+	]
+}

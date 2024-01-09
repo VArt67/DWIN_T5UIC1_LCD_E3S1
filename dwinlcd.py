@@ -2,7 +2,7 @@ import time
 #import multitimer #mkocot
 import threading #mkocot
 import atexit
-#import debugpy
+import debugpy
 
 from encoder import Encoder
 #from RPi import GPIO	#mkocot
@@ -10,6 +10,7 @@ from gpiozero import Button	#mkocot
 
 from printerInterface import PrinterData
 from DWIN_Screen import T5UIC1_LCD
+from menuTest import PrinterMenues
 
 
 def current_milli_time():
@@ -337,7 +338,7 @@ class DWIN_LCD:
 	# DWIN screen uses serial port 1 to send
 	def __init__(self, USARTx, encoder_pins, button_pin, octoPrint_API_Key):
 		#GPIO.setmode(GPIO.BCM)	#mkocot
-		#print("Waiting for debugger attach")
+		print("Waiting for debugger attach")
 		#debugpy.wait_for_client()
 		self.encoder = Encoder(encoder_pins[0], encoder_pins[1])
 		self.button_pin = button_pin
@@ -354,23 +355,33 @@ class DWIN_LCD:
 		self.lcdLock = threading.RLock()  # encoder_has_data & EachMomentUpdate threads
 		self.lcd = T5UIC1_LCD(USARTx)
 		self.lcd.Backlight_SetLuminance(0x14) #Sur 20
+		self.HMI_ShowBoot("Initializing ...")
 		self.checkkey = self.MainMenu
 		self.pd = PrinterData(octoPrint_API_Key)
+		self.HMI_progress(5)
 		self.timer = RepeatableTimer(
 			interval=0.25, function=self.EachMomentUpdate) #sur interval 1(2)
-		self.HMI_ShowBoot()
+		self.HMI_progress(10)
 		#self.HMI_AudioFeedback(True) #Sur?
 		print("Boot looks good")
 		print("Testing Web-services")
+		self.HMI_progress(15)
 		self.pd.init_Webservices()
-		time.sleep(5);
+		self.HMI_progress(20)
+		for i in range(1,4):
+			self.HMI_progress(i*25)
+			time.sleep(1)
 		while self.pd.status is None:
 			print("No Web-services. Next try ...")
 			self.pd.init_Webservices()
 			self.HMI_ShowBoot("Web-service still loading")
 			time.sleep(1);
+		self.HMI_progress(80)
 		self.HMI_Init()
+		self.HMI_progress(98)
 		self.HMI_StartFrame(False)
+		self.printerMenues = PrinterMenues(self.pd, self.lcd, self.HMI_StartFrame)
+		self.printerMenues.setup()
 		print("Init ready")
 
 	def lcdExit(self):
@@ -391,6 +402,11 @@ class DWIN_LCD:
 	def HMI_SetLanguage(self):
 		self.HMI_SetLanguageCache()
 
+	def HMI_progress(self, percentage):
+			self.lcd.ICON_Show(self.ICON, self.ICON_Bar, 15, 260)
+			self.lcd.Draw_Rectangle(1, self.lcd.Color_Bg_Black, 15 + percentage * 242 / 100, 260, 257, 280)
+			self.lcd.UpdateLCD()
+
 	def HMI_ShowBoot(self, mesg=None):
 		if mesg:
 			self.lcd.Draw_String(
@@ -399,6 +415,8 @@ class DWIN_LCD:
 				10, 50,
 				mesg
 			)
+		self.HMI_progress(0)
+		return
 		for t in range(0, 100, 2):
 			self.lcd.ICON_Show(self.ICON, self.ICON_Bar, 15, 260)
 			self.lcd.Draw_Rectangle(1, self.lcd.Color_Bg_Black, 15 + t * 242 / 100, 260, 257, 280)
@@ -412,7 +430,8 @@ class DWIN_LCD:
 		self.timer.start()
 		atexit.register(self.lcdExit)
 
-	def HMI_StartFrame(self, with_update):
+	def HMI_StartFrame(self, with_update=True):
+		self.EncoderRateLimit = True		
 		self.last_status = self.pd.status
 		if self.pd.status == 'printing':
 			self.Goto_PrintProcess()
@@ -542,6 +561,8 @@ class DWIN_LCD:
 
 	def HMI_Prepare(self):
 		encoder_diffState = self.get_encoder_state()
+		self.printerMenues.handleInput(encoder_diffState, self.encoder.diffValue)
+		return
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
 
@@ -655,6 +676,8 @@ class DWIN_LCD:
 
 	def HMI_Control(self):
 		encoder_diffState = self.get_encoder_state()
+		self.printerMenues.handleInput(encoder_diffState, self.encoder.diffValue)
+		return
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
 
@@ -832,6 +855,8 @@ class DWIN_LCD:
 	# Tune  */
 	def HMI_Tune(self):
 		encoder_diffState = self.get_encoder_state()
+		self.printerMenues.handleInput(encoder_diffState, self.encoder.diffValue)
+		return
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
 		if (encoder_diffState == self.ENCODER_DIFF_CW):
@@ -2176,6 +2201,9 @@ class DWIN_LCD:
 
 	def Draw_Prepare_Menu(self):
 		self.Clear_Main_Window()
+		self.printerMenues.activate(self.printerMenues.PrepareMenu)
+		self.EncoderRateLimit = False		
+		return
 		scroll = self.MROWS - self.index_prepare
 		#self.lcd.Frame_TitleCopy(1, 178, 2, 229, 14)  # "Prepare"
 		self.lcd.Draw_String(False, False, self.lcd.font10x20, self.lcd.Color_FG, self.lcd.Color_BGTitle, 14, 8, self.pd.s_PREPARE)
@@ -2199,6 +2227,9 @@ class DWIN_LCD:
 
 	def Draw_Control_Menu(self):
 		self.Clear_Main_Window()
+		self.printerMenues.activate(self.printerMenues.ControlMenu)
+		self.EncoderRateLimit = False		
+		return
 		scroll = self.MROWS - self.index_control
 		self.Draw_Back_First(self.select_control.now == 0)  # < Back
 		#self.lcd.Frame_TitleCopy(1, 128, 2, 176, 12)  # "Control"
@@ -2275,7 +2306,11 @@ class DWIN_LCD:
 			self.lcd.Draw_Line(self.lcd.Line_Color, 16, self.MBASE(2) + i * 73, 256, 156 + i * 73)
 
 	def Draw_Tune_Menu(self):
+		#debugpy.breakpoint()
 		self.Clear_Main_Window()
+		self.printerMenues.activate(self.printerMenues.TuneMenu)
+		self.EncoderRateLimit = False		
+		return
 		scroll = self.MROWS - self.index_control
 		self.Draw_Back_First(self.select_tune.now == 0) # <Back
 		#self.lcd.Frame_TitleCopy(1, 94, 2, 126, 12)  # "Tune"
@@ -2578,7 +2613,7 @@ class DWIN_LCD:
 
 	def Add_Menu_Line(self):
 		self.Move_Highlight(1, self.MROWS)
-		self.lcd.Draw_Line(self.lcd.Line_Color, 16, self.MBASE(self.MROWS + 1) - 20, 256, self.MBASE(self.MROWS + 1) - 19)
+		self.lcd.Draw_Line(self.lcd.Line_Color, 16, self.MBASE(self.MROWS + 1) - 20, 256, self.MBASE(self.MROWS + 1) - 20)
 
 	def Scroll_Menu(self, dir):
 		self.lcd.Frame_AreaMove(1, dir, self.MLINE, self.lcd.Color_Bg_Black, 0, 31, self.lcd.DWIN_WIDTH, 349)
@@ -2888,9 +2923,10 @@ class DWIN_LCD:
 			self.Draw_Print_ProgressElapsed()
 			self.Draw_Print_ProgressRemain()
 
-		if self.pd.HMI_flag.home_flag:
-			if self.pd.ishomed():
-				self.CompletedHoming()
+		self.printerMenues.periodicUpdate()
+		#if self.pd.HMI_flag.home_flag:
+		#	if self.pd.ishomed():
+		#		self.CompletedHoming()
     
 
 		if update:

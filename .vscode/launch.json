@@ -1,0 +1,49 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Deploy And Run On Remote",
+            "type": "python",
+            "request": "attach",
+            "port": 5678,
+            "host": "${config:sshEndpoint}",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "~/remote"
+                }
+            ],
+            "preLaunchTask": "copyAndStartOnPi",
+            "postDebugTask": "cleanupOnPi",
+          
+        },
+        {
+            "name": "Python: Deploy",
+            "type": "python",
+            "port": 5678,
+            "host": "${config:sshEndpoint}",
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "~/remote"
+                }
+            ],
+            "preLaunchTask": "copyOnPi",
+        },
+        {
+            "name": "Python: Attach",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "${config:sshEndpoint}",
+                "port": 5678       
+            },
+             "pathMappings": [
+            {
+                "localRoot": "${workspaceFolder}", 
+                "remoteRoot": "~/remote" 
+            }
+            ]
+        }
+    ]
+}

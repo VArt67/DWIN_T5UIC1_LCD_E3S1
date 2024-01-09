@@ -1,4 +1,5 @@
 from asyncio.tasks import sleep
+import sys
 import threading
 import errno
 import select
@@ -9,6 +10,16 @@ from requests.exceptions import ConnectionError
 import atexit
 import time
 import asyncio
+
+import logging
+
+#logging.basicConfig(level=logging.DEBUG)   # Eanble also other modules log messages
+formatter = logging.Formatter('%(levelname)s — F:%(funcName)s-L:%(lineno)d : %(message)s')
+pdLogger = logging.getLogger("printerInterface.log")
+loggerStreamHandler = logging.StreamHandler(sys.stdout)
+loggerStreamHandler.setFormatter(formatter)
+pdLogger.addHandler(loggerStreamHandler)
+pdLogger.setLevel(logging.DEBUG)
 
 
 def startTimeMeasure(id):
@@ -367,6 +378,7 @@ class PrinterData:
 			if 'fan' in status:
 				if 'speed' in status['fan']:
 					self.thermalManager['fan_speed'][0] = status['fan']['speed'] * 100
+					self.fanspeed_percentage = status['fan']['speed'] * 100
 					self.subscribedValChanged = True
 
 			if 'gcode_move' in status:
@@ -391,13 +403,16 @@ class PrinterData:
 			return False
 
 	def offset_z(self, new_offset):
-#		print('new z offset:', new_offset)
+		pdLogger.debug('new z offset: self.BABY_Z_VAR <-' + str(new_offset))
 		self.BABY_Z_VAR = new_offset
 		self.sendGCode('ACCEPT')
+	def getOffset_z(self):
+		pdLogger.debug('getOffset_z: self.BABY_Z_VAR ->' + str(self.BABY_Z_VAR))
+		return self.BABY_Z_VAR
 
 	def add_mm(self, axs, new_offset):
 		gc = 'TESTZ Z={}'.format(new_offset)
-		print(axs, gc)
+		pdLogger.debug("axs=" + str(axs) + " gCode:" + gc + "\n")
 		self.sendGCode(gc)
 
 	def probe_calibrate(self):
@@ -635,19 +650,33 @@ class PrinterData:
 		self.postREST('/machine/reboot', json=None)
 
 	def set_feedrate(self, fr):
+		pdLogger.debug('feedrate_percentage: %s <- %s' % (self.feedrate_percentage, fr) )
 		self.feedrate_percentage = fr
 		self.sendGCode('M220 S%s' % fr)
+	def get_feedrate(self):
+		pdLogger.debug('feedrate_percentage: %s' % self.feedrate_percentage)
+		return self.feedrate_percentage
 
 	def set_fanspeed(self, fr):
+		pdLogger.debug('fanspeed_percentage: %s <- %s' % (self.fanspeed_percentage, fr) )
 		self.fanspeed_percentage = fr
 		f = 255 * fr / 100
 		if f < 0 : f = 0
 		if f > 255 : f = 255
 		self.sendGCode('M106 S%s' % f)
+	def get_fanspeed(self):
+		pdLogger.debug('fanspeed_percentage: %s' % self.fanspeed_percentage)
+		return self.fanspeed_percentage
+	def getActFanspeed(self):
+		return self.thermalManager['fan_speed'][0]
 
 	def set_flowrate(self, fr):
+		pdLogger.debug('flowrate_percentage: %s <- %s' % (self.flowrate_percentage, fr) )
 		self.flowrate_percentage = fr
 		self.sendGCode('M221 S%s' % fr)
+	def get_flowrate(self):
+		pdLogger.debug('flowrate_percentage: %s' % self.flowrate_percentage)
+		return self.flowrate_percentage
 
 	# def set_fw_retract(self, rl, rs, us, uel):
 	# 	#SET_RETRACTION [RETRACT_LENGTH=<mm>] [RETRACT_SPEED=<mm/s>] [UNRETRACT_EXTRA_LENGTH=<mm>] [UNRETRACT_SPEED=<mm/s>]
@@ -659,22 +688,36 @@ class PrinterData:
 	# 		% rl, rs, us, uel)
 
 	def set_fw_retract_length(self, fr):
+		pdLogger.debug('fw_retract_length: %s <- %s' % (self.fw_retract_length, fr) )
 		self.fw_retract_length = fr
-		#print('set FW retract length to: ', fr)
 		self.sendGCode('SET_RETRACTION RETRACT_LENGTH=%s' % fr)
-
+	def get_fw_retract_length(self):
+		pdLogger.debug('fw_retract_length: %s' % self.fw_retract_length)
+		return self.fw_retract_length
 
 	def set_fw_retract_speed(self, fr):
+		pdLogger.debug('fw_retract_speed: %s <- %s' % (self.fw_retract_speed, fr) )
 		self.fw_retract_speed = fr
 		self.sendGCode('SET_RETRACTION RETRACT_SPEED=%s' % fr)
+	def get_fw_retract_speed(self):
+		pdLogger.debug('fw_retract_speed: %s' % self.fw_retract_speed)
+		return self.fw_retract_speed
 
 	def set_fw_unretract_speed(self, fr):
+		pdLogger.debug('fw_unretract_speed: %s <- %s' % (self.fw_unretract_speed, fr) )
 		self.fw_unretract_speed = fr
 		self.sendGCode('SET_RETRACTION UNRETRACT_SPEED=%s' % fr)
+	def get_fw_unretract_speed(self):
+		pdLogger.debug('fw_unretract_speed: %s' % self.fw_unretract_speed)
+		return self.fw_unretract_speed
 
 	def set_fw_unretract_extra_length(self, fr):
+		pdLogger.debug('fw_unretract_extra_length: %s <- %s' % (self.fw_unretract_extra_length, fr) )
 		self.fw_unretract_extra_length = fr
 		self.sendGCode('SET_RETRACTION UNRETRACT_EXTRA_LENGTH=%s' % fr)
+	def get_fw_unretract_extra_length(self):
+		pdLogger.debug('fw_unretract_extra_length: %s' % self.fw_unretract_extra_length)
+		return self.fw_unretract_extra_length
 
 	def home(self, homeZ=False): #fixed using gcode
 		script = 'G28 X Y'
@@ -683,15 +726,42 @@ class PrinterData:
 		self.sendGCode(script)
 
 	def moveRelative(self, axis, distance, speed):
+		pdLogger.debug('axis: %s distance: %s  speed: %s' % (axis, distance, speed) )
 		self.sendGCode('%s \n%s %s%s F%s%s' % ('G91', 'G1', axis, distance, speed,
 			'\nG90' if self.absolute_moves else ''))
 
 	def moveAbsolute(self, axis, position, speed):
+		pdLogger.debug('axis: %s position: %s  speed: %s' % (axis, position, speed) )
 		self.sendGCode('%s \n%s %s%s F%s%s' % ('G90', 'G1', axis, position, speed,
 			'\nG91' if not self.absolute_moves else ''))
 
+	def setCurrentPositionX(self, value):
+		self.current_position.x = value
+		self.moveAbsolute('X', value, 5000)
+	def setCurrentPositionY(self, value):
+		self.current_position.y = value
+		self.moveAbsolute('Y', value, 5000)
+	def setCurrentPositionZ(self, value):
+		self.current_position.z = value
+		self.moveAbsolute('Z', value, 600)
+	def setCurrentPositionE(self, value):
+		self.current_position.e = value
+		self.moveAbsolute('E', value, 300)
+	def getCurrentPositionX(self):
+		return self.current_position.x
+	def getCurrentPositionY(self):
+		return self.current_position.y
+	def getCurrentPositionZ(self):
+		return self.current_position.z
+	def getCurrentPositionE(self):
+		return self.current_position.e
+
+
 	def sendGCode(self, gcode):
 		self.postREST('/printer/gcode/script', json={'script': gcode})
+
+	def disableSteppers(self):
+		self.sendGCode("M84")
 
 	def disable_all_heaters(self):
 		self.setExtTemp(0)
@@ -705,6 +775,15 @@ class PrinterData:
 			self.preHeat(self.material_preset[0].bed_temp, self.material_preset[0].hotend_temp)
 		elif profile == "ABS":
 			self.preHeat(self.material_preset[1].bed_temp, self.material_preset[1].hotend_temp)
+	def setMaterialPresetHotendPLA(self, v):self.material_preset[0].hotend_temp = v
+	def setMaterialPresetHotendABS(self, v):self.material_preset[1].hotend_temp = v
+	def setMaterialPresetBedPLA(self, v):	self.material_preset[0].bed_temp = v
+	def setMaterialPresetBedABS(self, v):	self.material_preset[1].bed_temp = v
+	def getMaterialPresetHotendPLA(self):	return self.material_preset[0].hotend_temp
+	def getMaterialPresetHotendABS(self):	return self.material_preset[1].hotend_temp
+	def getMaterialPresetBedPLA(self):		return self.material_preset[0].bed_temp
+	def getMaterialPresetBedABS(self):		return self.material_preset[1].bed_temp
+
 
 	def save_settings(self):
 		print('saving settings')
@@ -712,9 +791,13 @@ class PrinterData:
 
 	def setExtTemp(self, target, toolnum=0):
 		self.sendGCode('M104 T%s S%s' % (toolnum, target))
+	def getExtTempTarget(self):
+		return self.thermalManager['temp_hotend'][0]['target']
 
 	def setBedTemp(self, target):
 		self.sendGCode('M140 S%s' % target)
+	def getBedTempTarget(self):
+		return self.thermalManager['temp_bed']['target']
 
 	def preHeat(self, bedtemp, exttemp, toolnum=0):
 # these work but invoke a wait which hangs the screen until they finish.
@@ -724,4 +807,5 @@ class PrinterData:
 		self.setExtTemp(exttemp)
 
 	def setZOffset(self, offset):
+		pdLogger.debug('offset: %s' % offset )
 		self.sendGCode('SET_GCODE_OFFSET Z=%s MOVE=1' % offset)

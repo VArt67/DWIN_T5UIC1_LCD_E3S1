@@ -1,0 +1,33 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "copyOnPi",
+            "type": "shell",
+            "command": "scp *.py ${config:sshUser}@${config:sshEndpoint}:~/remote/"
+        },
+        {
+            "label": "startOnPi",
+            "type": "shell",
+            "command": "ssh ${config:sshUser}@${config:sshEndpoint} 'nohup python3 -m debugpy --listen 0.0.0.0:5678 ~/remote/run.py >/dev/null 2>&1 &'",
+            "isBackground": true
+        },
+        {
+            "label": "wait",
+            "type": "shell",
+            "command": "timeout 3"
+        },
+        {
+            "label": "copyAndStartOnPi",
+            "dependsOrder": "sequence",
+            "dependsOn": ["copyOnPi", "startOnPi", "wait"]
+        },
+        {
+            "label": "cleanupOnPi",
+            "type": "shell",
+            "command": "ssh ${config:sshUser}@${config:sshEndpoint} kill `ps ax | grep run.py | grep 5678 | cut -d' ' -f1`"
+        },
+    ]    
+
+}
+
